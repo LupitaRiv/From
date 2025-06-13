@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Predicción de Tumor MRI</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+            position: relative;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .image-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .image-box {
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .image-box img {
+            max-width: 400px;
+            height: auto;
+        }
+        h3 {
+            margin-top: 5px;
+            margin-bottom: 10px;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 5px;
+        }
+        #loading-container {
+            width: 100%;
+            height: 4px;
+            background-color: #ddd;
+            position: absolute;
+            top: 0;
+            left: 0;
+            display: none;
+        }
+        #loading-bar {
+            width: 0;
+            height: 4px;
+            background-color: #4caf50;
+            text-align: center;
+            line-height: 20px;
+            color: white;
+            font-weight: bold;
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+        #loading-container.show {
+            display: block;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .error {
+            color: #ff0000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Predicción de Tumor en Imagen MRI</h1>
+
+        <!-- Formulario para cargar imagen -->
+        <form id="predict-form" enctype="multipart/form-data">
+            <label for="image">Selecciona una imagen MRI:</label>
+            <input type="file" name="image" id="image" accept="image/*" required>
+            <button type="submit" id="submit-btn">Predecir</button>
+        </form>
+
+        <!-- Barra de carga -->
+        <div id="loading-container">
+            <div id="loading-bar">Cargando...</div>
+        </div>
+
+        <!-- Resultados se mostrarán aquí -->
+        <div id="result-container" style="display: none;">
+            <div class="result">
+                <h2 id="result-text">Resultado: </h2>
+                <p id="probability-text">Probabilidad de tumor: </p>
+            </div>
+
+            <div class="image-container" id="image-container">
+                <!-- Imágenes se insertarán aquí dinámicamente -->
+            </div>
+        </div>
+
+        <!-- Mensaje de error -->
+        <div id="error-container" class="result" style="display: none;">
+            <h3 class="error" id="error-text"></h3>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('predict-form').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            
+            // Mostrar barra de carga
+            const loadingContainer = document.getElementById('loading-container');
+            const loadingBar = document.getElementById('loading-bar');
+            const submitBtn = document.getElementById('submit-btn');
+            
+            loadingContainer.classList.add('show');
+            submitBtn.disabled = true;
+            
+            // Animación de la barra de carga
+            let width = 0;
+            let interval = setInterval(function() {
+                if (width >= 90) { // No llega al 100% para dejar espacio al procesamiento real
+                    clearInterval(interval);
+                } else {
+                    width += 2;
+                    loadingBar.style.width = width + '%';
+                    loadingBar.textContent = `Cargando... ${width}%`;
+                }
+            }, 50);
+
+            try {
+                const fileInput = document.getElementById('image');
+                const file = fileInput.files[0];
+                
+                // Crear FormData y añadir la imagen
+                const formData = new FormData();
+                formData.append('image', file);
+                
+                // Enviar a tu endpoint n8n
+                const response = await fetch('https://guadalupe.app.n8n.cloud/webhook-test/MRIAnalisis', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                clearInterval(interval);
+                loadingBar.style.width = '100%';
+                loadingBar.textContent = `Cargando... 100%`;
+                
+                if (!response.ok) {
+                    throw new Error(`Error HTTP: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Ocultar barra de carga
+                setTimeout(() => {
+                    loadingContainer.classList.remove('show');
+                    submitBtn.disabled = false;
+                }, 500);
+                
+                // Mostrar resultados
+                displayResults(data, file);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                clearInterval(interval);
+                loadingContainer.classList.remove('show');
+                submitBtn.disabled = false;
+                showError(error.message);
+            }
+        });
+        
+        function displayResults(data, originalFile) {
+            // Ocultar errores si los hubiera
+            document.getElementById('error-container').style.display = 'none';
+            
+            // Mostrar contenedor de resultados
+            const resultContainer = document.getElementById('result-container');
+            resultContainer.style.display = 'block';
+            
+            // Leer la imagen original como Data URL
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const originalImageUrl = e.target.result;
+                
+                // Mostrar resultados básicos
+                document.getElementById('result-text').textContent = `Resultado: ${data.result || 'Tumor detectado'}`;
+                document.getElementById('probability-text').textContent = 
+                    `Probabilidad de tumor: ${(data.probability * 100).toFixed(2)}%`;
+                
+                // Contenedor de imágenes
+                const imageContainer = document.getElementById('image-container');
+                imageContainer.innerHTML = '';
+                
+                // Añadir imagen original
+                addImageBox(imageContainer, 'Imagen Original', originalImageUrl);
+                
+                // Añadir máscara de segmentación si existe
+                if (data.mask) {
+                    addImageBox(imageContainer, 'Máscara de Segmentación', data.mask);
+                }
+                
+                // Añadir imagen superpuesta si existe
+                if (data.overlay_image) {
+                    addImageBox(imageContainer, 'Tumor Destacado', data.overlay_image);
+                }
+            };
+            reader.readAsDataURL(originalFile);
+        }
+        
+        function addImageBox(container, title, imageUrl) {
+            const imageBox = document.createElement('div');
+            imageBox.className = 'image-box';
+            
+            const titleElement = document.createElement('h3');
+            titleElement.textContent = title;
+            
+            const imgElement = document.createElement('img');
+            imgElement.src = imageUrl;
+            imgElement.alt = title;
+            
+            imageBox.appendChild(titleElement);
+            imageBox.appendChild(imgElement);
+            container.appendChild(imageBox);
+        }
+        
+        function showError(message) {
+            const errorContainer = document.getElementById('error-container');
+            const errorText = document.getElementById('error-text');
+            
+            errorText.textContent = `Error: ${message}`;
+            errorContainer.style.display = 'block';
+            
+            // Ocultar resultados si estaban mostrándose
+            document.getElementById('result-container').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
